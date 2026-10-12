@@ -47,7 +47,9 @@ public class Match {
     @Deprecated
     private static <T> TreeSearcher<T> searcher() {
         try {
-            return (TreeSearcher<T>) me.towdium.jecharacters.util.Match.class.getDeclaredMethod("searcher").invoke(null);
+            java.lang.reflect.Method method = me.towdium.jecharacters.util.Match.class.getDeclaredMethod("searcher");
+            method.setAccessible(true);
+            return (TreeSearcher<T>) method.invoke(null);
         } catch (IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
             throw new RuntimeException(e);
         }

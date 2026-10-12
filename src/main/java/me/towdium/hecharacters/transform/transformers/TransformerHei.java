@@ -14,6 +14,8 @@ import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.InvokeDynamicInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
+import org.objectweb.asm.tree.InsnNode;
+import org.objectweb.asm.tree.TypeInsnNode;
 
 import java.util.Iterator;
 
@@ -24,21 +26,29 @@ import java.util.Iterator;
 
 public class TransformerHei extends Transformer.Default {
 
+    private static final String PREFIX_INFO = "mezz.jei.search.PrefixInfo";
+    private static final String DEFAULT_SEARCH_FACTORY = "mezz.jei.startup.JeiStarter$1";
+
     @Override
     public boolean accepts(String name) {
-        boolean loading = "mezz.jei.search.PrefixInfo".equals(name);
+        boolean loading = PREFIX_INFO.equals(name) || DEFAULT_SEARCH_FACTORY.equals(name);
         if (loading) {
             boolean isHei = Loader.instance().getModList()
                     .stream()
                     .anyMatch(mod -> mod.getModId().equals(Constants.MOD_ID) && mod.getName().equals(Constants.NAME));
             if (!isHei) return false;
         }
-        return HechConfig.enableHEI && loading;
+        if (!HechConfig.enableHEI || !loading) return false;
+        return PREFIX_INFO.equals(name) || hasAdvancedSearchApi();
     }
 
     @Override
     public void transform(ClassNode n) {
         HechCore.LOG.info("Transforming class " + n.name + " for HEI integration.");
+        if ("mezz/jei/startup/JeiStarter$1".equals(n.name)) {
+            transformDefaultSearchFactory(n);
+            return;
+        }
         Transformer.findMethod(n, "<clinit>").ifPresent(methodNode ->
                 transformInvokeLambda(methodNode,
                         "mezz/jei/search/GeneralizedSuffixTree",
@@ -62,6 +72,33 @@ public class TransformerHei extends Transformer.Default {
                     }
                 }
             }
+        });
+    }
+
+    private static boolean hasAdvancedSearchApi() {
+        try {
+            Class.forName("mezz.jei.api.search.ISearchIndex", false, TransformerHei.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException e) {
+            return false;
+        }
+    }
+
+    private static void transformDefaultSearchFactory(ClassNode n) {
+        Transformer.findMethod(n, "create").ifPresent(methodNode -> {
+            methodNode.instructions.clear();
+            methodNode.instructions.add(new TypeInsnNode(Opcodes.NEW, "mezz/jei/search/SearchIndexBuilder"));
+            methodNode.instructions.add(new InsnNode(Opcodes.DUP));
+            methodNode.instructions.add(new TypeInsnNode(Opcodes.NEW, "me/towdium/hecharacters/util/Match$FakeTree"));
+            methodNode.instructions.add(new InsnNode(Opcodes.DUP));
+            methodNode.instructions.add(new MethodInsnNode(Opcodes.INVOKESPECIAL,
+                    "me/towdium/hecharacters/util/Match$FakeTree", "<init>", "()V", false));
+            methodNode.instructions.add(new MethodInsnNode(Opcodes.INVOKESPECIAL,
+                    "mezz/jei/search/SearchIndexBuilder", "<init>",
+                    "(Lmezz/jei/api/search/ISearchIndex;)V", false));
+            methodNode.instructions.add(new InsnNode(Opcodes.ARETURN));
+            methodNode.maxStack = 4;
+            methodNode.maxLocals = 1;
         });
     }
 
